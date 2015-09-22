@@ -1,0 +1,99 @@
+---
+title: "Practical Machine Learning Course Project"
+author: "Conor Breen"
+date: "22 September 2015"
+output: html_document
+---
+
+Human Activity Recognition Prediction
+
+Summary
+The aim of the project was to build a machine learning algorithm to predict the manner in which exercise was done from activity monitors. 
+
+The training and test datasets were obtained from http://groupware.les.inf.puc-rio.br/har.
+
+After cleaning the data and removing variables with limited predictive value, three algorithims were tested on a small sub-sample - boosting, random forest and linear discriminant analysis. The accuracy benchmark indicated that random forest was the best predictor for this data.
+
+Due to the size of the dataset, pre-processing was conducted using principal component analysis.
+
+The final cross-validated model had an accuracy of 97.2% when tested using the testing data. This left an out of sample error of 2.4%.
+
+1.	Getting and cleaning data
+
+The necessary packages were loaded and data files were read from the working directory, with missing values converted to NA values.
+```{r, warning=FALSE}
+library(caret)
+library(randomForest)
+library(gbm)
+trainR <- read.csv("./pml-training.csv", na.strings=c("NA",""))
+testR <- read.csv("./pml-testing.csv", na.strings=c("NA",""))
+```
+
+The columns with all NA values were removed.
+```{r}
+trainR <- trainR[, colSums(is.na(trainR)) == 0] 
+testR <- testR[, colSums(is.na(testR)) == 0] 
+```
+
+Columns with little or no predictive value such as the timestamp and window variables were removed from both the training and testing sets. Remaining variables were converted to numeric variables (aside from the dependent "classe" variable).
+```{r}
+classe <- trainR$classe
+Trainstamp <- grepl("^X|timestamp|window", names(trainR))
+trainR <- trainR[, !Trainstamp]
+trainC <- trainR[, sapply(trainR, is.numeric)]
+trainC$classe <- classe
+Teststamp <- grepl("^X|timestamp|window", names(testR))
+testR <- testR[, !Teststamp]
+testC <- testR[, sapply(testR, is.numeric)]
+```
+
+2.	Choosing a machine learning algorithm
+
+The cleaned training set was then partitioned 70/30% for cross-validation purposes.
+```{r}
+set.seed(606)
+inTrain <- createDataPartition(trainC$classe, p=0.70, list=F)
+training <- trainC[inTrain, ]
+testing <- trainC[-inTrain, ]
+```
+
+A small sample was taken from the training and testing sets to choose a suitable machine learning algorithm.
+```{r}
+smalltrain <- training[sample(nrow(training), 500), ]
+smalltest <- testing[sample(nrow(testing), 150), ]
+```
+
+Three algorithms were fit - random forest, boosting and linear discriminant analysis.
+```{r, warning=FALSE, results='hide'}
+fitRf <- train(classe ~ ., method="rf", data=smalltrain)
+fitGBM <- train(classe ~ ., method="gbm", data=smalltrain)
+fitLDA <- train(classe ~ ., method="lda", data=smalltrain)
+predRf <- predict(fitRf, smalltest)
+predGBM <- predict(fitGBM, smalltest)
+predLDA <- predict(fitLDA, smalltest)
+confusionMatrix(predRf, smalltest$classe)
+confusionMatrix(predGBM, smalltest$classe)
+confusionMatrix(predLDA, smalltest$classe)
+```
+
+The random forest had an accuracy of 83.3%, compared to 82.7% for the boosting model and 64.7% for the LDA. As a result, the random forest algorithm was deemed most suitable.
+
+3.	Pre-processing and fitting the final model
+
+The final model was fit with cross-validation and data was pre-processed using principal components analysis due to the size of the training dataset.
+```{r, warning=FALSE}
+trControl <- trainControl(method = "cv", number = 4)
+ModelRf <- train(classe ~., preProcess="pca", method="rf", trControl = trControl, data=training)
+```
+
+The model was then tested on the testing dataset. It was found to have 97.2% accuracy.
+```{r}
+predictRf <- predict(ModelRf, testing)
+confusionMatrix(testing$classe, predictRf)
+```
+
+Finally, the model was applied to the original test dataset.
+```{r}
+answers <- predict(ModelRf, testC[, -length(names(testC))])
+class(answers)
+```
